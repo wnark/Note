@@ -42,6 +42,8 @@ if [ "$QuickMode" != 1 ]; then
   rm -rf "${OutPutLog}"
   rm -rf "${MediaFolder}"
   mkdir -p "${MediaFolder}"
+else
+  rm -rf "${OutPutLog}"
 fi
 
 ## m3u8
@@ -135,15 +137,18 @@ echo "check upload..."
 
 function ForceVBR(){
   fsName="$1"
-  [ -f "${fsName}" ] || return
+  loopTimes="$2"
+  [ -n "${fsName}" ] && [ -f "${fsName}" ] || return
   [ `du -s -k "${fsName}" |cut -f1` -le `awk 'BEGIN{print '${MaxSize}' * 1024}' |cut -d'.' -f1` ] && return
-  NewFsName="New_${fsName}"
+  NewFsName="${fsName}_New.ts"
   cp -rf "${fsName}" "${NewFsName}"
-  ForceMaxRate=`awk 'BEGIN{print '${ForceRate}' * '${ForceMaxRadio}'}' |cut -d'.' -f1`
-  ForceBuf=`awk 'BEGIN{print '${ForceRate}' / '${ForceMaxRadio}'}' |cut -d'.' -f1`
-  VideoAddon="-b:v ${ForceRate} -maxrate ${ForceMaxRate} -bufsize ${ForceBuf}"
-  ffmpeg -y -v info -i "${NewFsName}" -vcodec h264 -acodec copy -strict experimental -bsf:v h264_mp4toannexb ${VideoAddon} -f mpegts "${fsName}"
-  [ -f "${NewFsName}" ] && [ -f "${fsName}" ] && rm "${NewFsName}"
+  LowerRadio=`awk 'BEGIN{print 0.85 ** '${loopTimes}'}'`
+  NewForceRate=`awk 'BEGIN{print '${ForceRate}' * '${LowerRadio}'}' |cut -d'.' -f1`
+  NewForceMaxRate=`awk 'BEGIN{print '${NewForceRate}' * '${ForceMaxRadio}'}' |cut -d'.' -f1`
+  NewForceBuf=`awk 'BEGIN{print '${NewForceRate}' / '${ForceMaxRadio}'}' |cut -d'.' -f1`
+  VideoAddon="-b:v ${NewForceRate} -maxrate ${NewForceMaxRate} -bufsize ${NewForceBuf}"
+  ffmpeg -y -v info -i "${NewFsName}" -copyts -vsync 0 -muxdelay 0 -vcodec h264 -acodec copy -strict experimental -bsf:v h264_mp4toannexb ${VideoAddon} -f mpegts "${fsName}"
+  [ -f "${NewFsName}" ] && [ -f "${fsName}" ] && rm -rf "${NewFsName}"
 }
 
 for((i=0; i<$MaxCheck; i++)); do
@@ -158,7 +163,7 @@ for((i=0; i<$MaxCheck; i++)); do
       echo "Error: not found '${Item}'."
       exit 1
     fi
-    ForceVBR "${BadItem}"
+    ForceVBR "${BadItem}" "${i}"
     bash "${ScriptDir}/${Uploader}" "${BadItem}" |tee -a "${OutPutLog}"
   done
   sed -i '/;\ NULL_/d' "${OutPutLog}"
